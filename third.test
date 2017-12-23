@@ -1,0 +1,12 @@
+test(t){
+x = 9;
+y = 10;
+
+	return x + y + t;
+}
+
+{
+
+  print(test(10));
+
+}

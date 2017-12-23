@@ -1,6 +1,6 @@
 # Jose Rodriguez 107927299
 #
-# WolfieScript HW5
+# WolfieScript HW6
 # -----------------------------------------------------------------------------
 #Helper class
 class Node:
@@ -39,6 +39,14 @@ class NameNode(Node):
 	def evaluate(self):
 		if self.value in names:
 			return names[self.value]
+		#check with the main stack (static scope)
+		elif len(stack) > 0:
+			# print("checking the main stack")
+			if self.value in stack[0]:
+				return stack[0][self.value]
+			else:
+				raise SemanticError()
+
 		else:
 			raise SemanticError()
 
@@ -195,9 +203,15 @@ class AssignmentNode(Node):
 	def execute(self):
 		v1 = self.v1
 		v2 = self.v2.evaluate()
+		# if isinstance(self.v2, FunExpNode):
+		# 	v2 = self.v2.execute()
+		# else:
+		# 	v2 = self.v2.evaluate()
+		# print("ASSIGMENT NODE", v1, v2)
 		#check if what we got is a name node, get its value
 		if isinstance(v1,NameNode):
 			names[v1.value] = v2
+			# print("ASSIGNED A VARIABLE",v1.value,names)
 		#check if its an indexnode with a name node, then we assign it
 		elif isinstance(v1,IndexNode):
 			if isinstance(v1.v1,NameNode):
@@ -257,7 +271,7 @@ class OneStatementNode(Node):
 		self.v1 = v
 
 	def execute(self):
-		self.v1.execute()
+		return self.v1.execute()
 
 class MoreStatementNode(Node):
 	def __init__(self, v1, v2):
@@ -265,8 +279,17 @@ class MoreStatementNode(Node):
 		self.v2 = v2
 
 	def execute(self):
-		self.v1.execute()
-		self.v2.execute()
+		#one statement
+		v1 = self.v1.execute()
+		#multiple statements
+		v2 = self.v2.execute()
+		# we need to have a value, else no need to return
+		if v1 != None:
+			return v1
+		elif v2 != None:
+			return v2
+
+		
 
 class IfNode(Node):
 	def __init__(self, v1, v2):
@@ -276,21 +299,85 @@ class IfNode(Node):
 
 	def execute(self):
 		if(self.v1.evaluate() == 1):
-			self.v2.execute()
+			return self.v2.execute()
 		elif(self.els != None):
-			self.els.execute()
+			return self.els.execute()
 
 class ElseNode(Node):
 	def __init__(self, v):
 		self.v = v
 	def execute(self):
-		self.v.execute()
+		return self.v.execute()
 
 class BlockNode(Node):
 	def __init__(self, v):
 		self.v = v
 	def execute(self):
-		self.v.execute()
+		# print("executing block ")
+		return self.v.execute()
+
+class FunctionNode(Node):
+	def __init__(self, v, arguments, block):
+		self.v = v
+		self.arguments = arguments
+		self.block = block
+		#add to current functions
+		if self.v.value in functions:
+			# print("already have it",self.v.value)
+			raise SemanticError()
+		else:
+			# print("adding to list of functions",self.v.value)
+			functions[self.v.value] = self
+		
+
+	def execute(self, arguments):
+		global names
+		#push the previous frame
+		stack.append(names)
+		#this is in case we do have arguments passed
+		if(self.arguments != None and arguments != None):
+			#check that the size of the function and the arguments obtianed are the same
+			if len(arguments) != len(self.arguments):
+				# print("need more arguments or less")
+				raise SemanticError()
+
+			#create the new dictionary with values if needed of current one
+			temp = {}
+
+			for i in range(len(self.arguments)):
+				temp[self.arguments[i].value] = arguments[i].evaluate()
+			names = temp
+
+		if((self.arguments != None and arguments == None) or (self.arguments == None and arguments != None)):
+			raise SemanticError()
+			
+		result = self.block.execute()
+		names = stack.pop()
+
+		return result
+
+#this is when it is called
+class FunExpNode(Node):
+	def __init__(self, v, arguments):
+		self.v = v #name
+		self.arguments = arguments
+
+	def evaluate(self):
+		function = functions.get(self.v.value)
+		r = function.execute(self.arguments)
+		# print("THIS IS R", r)
+		if r != None:
+			return r
+		# print(r)
+
+#for then they use return
+class ReturnNode(Node):
+	def __init__(self, v):
+		self.v = v #what to return
+
+	def execute(self):
+		# print("executing return",self.v.evaluate())
+		return self.v.evaluate()
 
 #for those that we dont want to do anything
 class EmptyNode(Node):
@@ -302,6 +389,8 @@ class EmptyNode(Node):
 
 	def execute(self):
 		pass
+
+
 
 #main class for exceptions and errors
 class Error(Exception):
@@ -323,7 +412,8 @@ reserved = {
    'print': 'PRINT',
    'if' : 'IF',
    'else' : 'ELSE',
-   'while' : "WHILE"
+   'while' : "WHILE",
+   'return' : "RETURN"
 }
 
 tokens = ['INTEGER','REAL','STRING','LPAREN','RPAREN','LBRACKET',
@@ -421,7 +511,35 @@ precedence = (
     )
 
 # dictionary of names
-names = { }
+names = {}
+functions = {}
+stack = []
+
+def p_program_func(t):
+	'''program : functions block'''
+	t[0] = t[2]
+
+def p_program_block(t):
+	'''program : block'''
+	t[0] = t[1]
+
+def p_functions(t):
+	'''functions : functions function'''
+	# t[0] = t[2]
+
+def p_functions_function(t):
+	'''functions : function'''
+	t[0] = t[1]
+
+def p_functions_one(t):
+	'''function : ID LPAREN IDlist RPAREN block'''
+	# print("here")
+	t[0] = FunctionNode(t[1],t[3],t[5])
+
+def p_functions_noargs(t):
+	'''function : ID LPAREN RPAREN block'''
+	t[0] = FunctionNode(t[1],None,t[4])
+	
 #######################BLOCK##############################################
 def p_block(t):
 	'''block : LCURLY statements RCURLY'''
@@ -445,12 +563,17 @@ def p_statement_expr(t):
     				| ifstatement
     				| whilestatement
     				| elsestatement
-    				| block'''
+    				| block
+    				| returnstatement'''
     t[0] = OneStatementNode(t[1])
 
 def p_statement_assign(t):
     '''statement : expression ASSIGMENT expression SEMICOLON'''
     t[0] = AssignmentNode(t[1],t[3])
+
+def p_statement_return(t):
+    '''returnstatement : RETURN expression SEMICOLON'''
+    t[0] = ReturnNode(t[2])
 
 def p_bodystatement_onestatement(t):
 	'''bodystatement : statement'''
@@ -538,7 +661,7 @@ def p_bracket(t):
 	'''bracket : LBRACKET expression RBRACKET'''
 	t[0] = t[2]	
 
-#######################LIST##############################################
+#######################LISTS##############################################
 def p_list_empty(t):
 	'''list : LBRACKET RBRACKET'''
 	t[0] = ListNode([])
@@ -556,9 +679,25 @@ def p_commalist_list(t):
 	t[0] = [t[1].evaluate()]
 
 def p_commalist_recursive(t):
-	'''commalist : expression COMMA commalist'''
-	t[0] =  [t[1].evaluate()] + t[3]
+	'''commalist : commalist COMMA expression'''
+	t[0] =  [t[3].evaluate()] + t[1]
 
+#######################LISTS EXPRESSIONS##############################################
+def p_expressionslist(t):
+	'''expressionlist : expressionlist COMMA expression'''
+	t[0] =  [t[3]] + t[1]
+
+def p_expressionslist_expression(t):
+	'''expressionlist : expression'''
+	t[0] = [t[1]]
+#######################LISTS ID##############################################
+def p_idlist(t):
+	'''IDlist : IDlist COMMA ID'''
+	t[0] =  [t[3]] + t[1]
+
+def p_idlist_id(t):
+	'''IDlist : ID'''
+	t[0] = [t[1]]
 
 #######################TERMINALS##############################################
 def p_expression_factor(t):
@@ -569,17 +708,30 @@ def p_factor_paren(t):
 	'''factor : LPAREN expression RPAREN'''
 	t[0] = t[2]
 
+def p_funExp(t):
+	'''funExp : ID LPAREN expressionlist RPAREN'''
+	# print("inside funExp")
+	t[0] = FunExpNode(t[1],t[3])
+
+def p_funExp_emptyargs(t):
+	'''funExp : ID LPAREN RPAREN'''
+	# print("inside funExp")
+	t[0] = FunExpNode(t[1],None)
+
 def p_factor_type(t):
     '''factor : INTEGER
                   | REAL
                   | STRING
                   | ID 
                   | list
-                  | index'''
+                  | index
+                  | funExp'''
+
     t[0] = t[1]
 
 
 def p_error(t):
+	# print("throwing error",t)
 	raise SyntaxError()
 
 import ply.yacc as yacc
